@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>粒子圣诞树</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+        #info {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 24px;
+            text-shadow: 0 0 5px #fff, 0 0 10px #ff00de;
+            pointer-events: none; /* 不影响鼠标事件 */
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- todo 启动页面从人像抠图，流光效果 -->
+    <!-- todo 添加背景音乐和切换，烟花音效 -->
+
+    <!-- <div id="info">Merry Christmas<br>To 你 ❤️</div> -->
+    <div id="info">Merry Christmas<br>test</div>
+
+    <!-- 引入 Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // 1. 基础设置
+        let scene, camera, renderer, particles, heart;
+
+        function init() {
+            // 场景
+            scene = new THREE.Scene();
+
+            // 相机
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 500;
+
+            // 渲染器
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            // 3. 创建心形顶部装饰
+            // createHeart();
+
+            // 2. 创建粒子圣诞树
+            createChristmasTree();
+
+            // 4. 创建背景星空
+            createStarfield();
+
+            // 5. 窗口大小自适应
+            window.addEventListener('resize', onWindowResize, false);
+            window.addEventListener('click', onMouseClick, false); // <-- 新增
+
+            // 6. 开始动画循环
+            animate();
+            createStarfield();
+            createSnowflakes(); // <-- 新增这一行
+        }
+
+        
+        // todo 替换成粒子组成
+        // 创建心形装饰
+        function createHeart() {
+            const shape = new THREE.Shape();
+            const x = 0, y = 0;
+            shape.moveTo(x + 25, y + 25);
+            shape.bezierCurveTo(x + 25, y + 25, x + 20, y, x, y);
+            shape.bezierCurveTo(x - 30, y, x - 30, y + 35, x - 30, y + 35);
+            shape.bezierCurveTo(x - 30, y + 55, x - 10, y + 77, x + 25, y + 95);
+            shape.bezierCurveTo(x + 60, y + 77, x + 80, y + 55, x + 80, y + 35);
+            shape.bezierCurveTo(x + 80, y + 35, x + 80, y, x + 50, y);
+            shape.bezierCurveTo(x + 35, y, x + 25, y + 25, x + 25, y + 25);
+
+            const extrudeSettings = {
+                depth: 8,
+                bevelEnabled: true,
+                bevelSegments: 2,
+                steps: 2,
+                bevelSize: 1,
+                bevelThickness: 1
+            };
+
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            const material = new THREE.MeshBasicMaterial({
+                color: 0xff3366,
+                transparent: true,
+                opacity: 0.9
+            });
+
+            heart = new THREE.Mesh(geometry, material);
+            heart.scale.set(0.8, 0.8, 0.8);
+            heart.position.set(0, 220, 0); // 放在树顶
+            scene.add(heart);
+        }
+
+        // 创建粒子圣诞树 (分层 & 闪烁版)
+        function createChristmasTree() {
+
+            // todo 层数要更多，树枝更宽，添加红金星星，底座
+            const layers = [
+                { count: 1500, minHeight: -50, maxHeight: 0, maxRadius: 20 }, // 树干，稍微加宽
+                { count: 4000, minHeight: 0, maxHeight: 100, maxRadius: 80 }, // 底层，增加粒子数和宽度
+                { count: 3500, minHeight: 75, maxHeight: 175, maxRadius: 70 }, // 第二层，增加粒子数和宽度
+                { count: 3000, minHeight: 150, maxHeight: 250, maxRadius: 60 }, // 中层，增加粒子数和宽度
+                { count: 2500, minHeight: 225, maxHeight: 325, maxRadius: 50 }, // 上层，保持一定宽度但减少一些粒子数
+                { count: 2000, minHeight: 300, maxHeight: 400, maxRadius: 40 }  // 顶层，最细的部分
+            ];
+
+            const totalParticles = layers.reduce((sum, layer) => sum + layer.count, 0);
+            const positions = new Float32Array(totalParticles * 3);
+            const colors = new Float32Array(totalParticles * 3);
+            const sizes = new Float32Array(totalParticles);
+            const blinkFlags = new Float32Array(totalParticles); // 新增：闪烁标志
+
+            let index = 0;
+            layers.forEach(layer => {
+                for (let i = 0; i < layer.count; i++) {
+                    // 在每层内部使用螺旋分布
+                    const progressInLayer = i / layer.count;
+                    const y = layer.minHeight + (layer.maxHeight - layer.minHeight) * progressInLayer;
+                    
+                    // 半径从最大到0
+                    const radius = layer.maxRadius * (1 - progressInLayer);
+
+                    // 加入随机偏移
+                    const randomRadiusOffset = (Math.random() - 0.5) * 20;
+                    const randomAngleOffset = (Math.random() - 0.5) * 0.5;
+                    const randomHeightOffset = (Math.random() - 0.5) * 15;
+
+                    const finalRadius = Math.max(0, radius + randomRadiusOffset);
+                    const angle = i * 0.08 + randomAngleOffset; // 调整螺旋密度
+                    const finalY = y + randomHeightOffset - 200; // 整体下移
+
+                    const x = finalRadius * Math.sin(angle);
+                    const z = finalRadius * Math.cos(angle);
+
+                    positions[index * 3]     = x;
+                    positions[index * 3 + 1] = finalY;
+                    positions[index * 3 + 2] = z;
+
+                    // 颜色：绿色系为主，点缀其他颜色
+                    let color;
+                    if (Math.random() > 0.35) {
+                         // 5% 概率是金色或红色
+                        color = new THREE.Color(Math.random() > 0.5 ? 0xffd700 : 0xff3333);
+                    } else {
+                        // 绿色系
+                        const hue = 0.33 + (Math.random() * 0.1 - 0.05); // 绿色附近
+                        const saturation = 0.7 + Math.random() * 0.3;
+                        const lightness = 0.3 + Math.random() * 0.4;
+                        color = new THREE.Color().setHSL(hue, saturation, lightness);
+                    }
+                    colors[index * 3]     = color.r;
+                    colors[index * 3 + 1] = color.g;
+                    colors[index * 3 + 2] = color.b;
+
+                    // 大小：随机
+                    sizes[index] = Math.random() * 2.0 + 1.0;
+
+                    // 闪烁标志：20% 的粒子会闪烁
+                    blinkFlags[index] = Math.random() < 0.5 ? 1 : 0;
+
+                    index++;
+                }
+            });
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            geometry.setAttribute('blink', new THREE.BufferAttribute(blinkFlags, 1)); // 添加闪烁属性
+
+            const material = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 },
+                    pointTexture: { value: generateCircleTexture() } // 使用圆形纹理
+                },
+                vertexShader: `
+                    attribute float size;
+                    attribute float blink;
+                    attribute vec3 color;
+                    varying float vBlink;
+                    varying vec3 vColor;
+                    void main() {
+                        vBlink = blink;
+                        vColor = color;
+                        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                        gl_PointSize = size * (300.0 / -mvPosition.z); // sizeAttenuation
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+                fragmentShader: `
+                    uniform float time;
+                    uniform sampler2D pointTexture;
+                    varying float vBlink;
+                    varying vec3 vColor;
+                    void main() {
+                        // 纹理采样
+                        vec4 texColor = texture2D(pointTexture, gl_PointCoord);
+                        if (texColor.a < 0.5) discard; // 透明区域丢弃
+
+                        // 使用顶点颜色传递过来的颜色
+                        vec3 color = vColor;
+
+                        // 如果是闪烁粒子，则根据时间改变亮度
+                        if (vBlink > 0.5) {
+                            float blinkFactor = sin(time * 5.0 + gl_FragCoord.x * 0.01 + gl_FragCoord.y * 0.01) * 0.5 + 0.5;
+                            color *= (0.7 + 0.3 * blinkFactor);
+                        }
+
+                        // 将纹理的 alpha 用于形状，并乘以顶点颜色
+                        gl_FragColor = vec4(color, 1.0) * texColor;
+                    }
+                `,
+                transparent: true,
+                blending: THREE.AdditiveBlending
+            });
+
+            particles = new THREE.Points(geometry, material);
+            scene.add(particles);
+            
+            // 保存材质引用以便更新时间
+            window.treeMaterial = material;
+        }
+
+        // 辅助函数：生成圆形纹理 (用于粒子)
+        function generateCircleTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32;
+            canvas.height = 32;
+            const context = canvas.getContext('2d');
+            context.beginPath();
+            context.arc(16, 16, 16, 0, Math.PI * 2);
+            context.fillStyle = 'white';
+            context.fill();
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            return texture;
+        }
+
+        // 创建飘雪效果 (六角雪花版)
+        let snowflakes;
+        function createSnowflakes() {
+            const snowflakeCount = 2000;
+            const snowPositions = new Float32Array(snowflakeCount * 3);
+            const snowSizes = new Float32Array(snowflakeCount);
+            const snowSpeeds = new Float32Array(snowflakeCount); // 新增：不同下落速度
+
+            for (let i = 0; i < snowflakeCount; i++) {
+                snowPositions[i * 3]     = (Math.random() - 0.5) * 2000; // X
+                snowPositions[i * 3 + 1] = Math.random() * 1000 + 300;   // Y (从上方开始)
+                snowPositions[i * 3 + 2] = (Math.random() - 0.5) * 2000; // Z
+
+                snowSizes[i] = Math.random() * 4 + 2; // 大小 2-6
+                snowSpeeds[i] = Math.random() * 1.5 + 0.5; // 速度 0.5-2.0
+            }
+
+            const snowGeometry = new THREE.BufferGeometry();
+            snowGeometry.setAttribute('position', new THREE.BufferAttribute(snowPositions, 3));
+            snowGeometry.setAttribute('size', new THREE.BufferAttribute(snowSizes, 1));
+            snowGeometry.setAttribute('speed', new THREE.BufferAttribute(snowSpeeds, 1)); // 添加速度属性
+
+            const snowMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    pointTexture: { value: generateSnowflakeTexture() } // 使用雪花纹理
+                },
+                vertexShader: `
+                    attribute float size;
+                    attribute float speed; // 获取速度属性
+                    varying float vSpeed;
+                    void main() {
+                        vSpeed = speed;
+                        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                        gl_PointSize = size * (300.0 / -mvPosition.z);
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+                fragmentShader: `
+                    uniform sampler2D pointTexture;
+                    void main() {
+                        vec4 texColor = texture2D(pointTexture, gl_PointCoord);
+                        if (texColor.a < 0.5) discard;
+                        gl_FragColor = vec4(1.0, 1.0, 1.0, texColor.a); // 白色雪花
+                    }
+                `,
+                transparent: true,
+                blending: THREE.NormalBlending
+            });
+
+            snowflakes = new THREE.Points(snowGeometry, snowMaterial);
+            scene.add(snowflakes);
+            
+            // 保存引用
+            window.snowMaterial = snowMaterial;
+        }
+
+        // 辅助函数：生成六角雪花纹理
+        function generateSnowflakeTexture() {
+            const canvas = document.createElement('canvas');
+            const size = 64;
+            canvas.width = size;
+            canvas.height = size;
+            const context = canvas.getContext('2d');
+            
+            context.clearRect(0, 0, size, size);
+            context.fillStyle = 'white';
+            
+            // 绘制一个简单的六角星
+            const centerX = size / 2;
+            const centerY = size / 2;
+            const outerRadius = size / 2 - 2;
+            const innerRadius = outerRadius * 0.5;
+            
+            context.beginPath();
+            for (let i = 0; i < 6; i++) {
+                const angle = Math.PI / 3 * i;
+                const x1 = centerX + outerRadius * Math.cos(angle);
+                const y1 = centerY + outerRadius * Math.sin(angle);
+                const x2 = centerX + innerRadius * Math.cos(angle + Math.PI / 6);
+                const y2 = centerY + innerRadius * Math.sin(angle + Math.PI / 6);
+                
+                if (i === 0) {
+                    context.moveTo(x1, y1);
+                } else {
+                    context.lineTo(x1, y1);
+                }
+                context.lineTo(x2, y2);
+            }
+            context.closePath();
+            context.fill();
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            return texture;
+        }
+
+        // 新增：烟花系统
+        let fireworks = [];
+        class Firework {
+            constructor(x, y, z) {
+                this.group = new THREE.Group();
+                const particleCount = 200;
+                const positions = new Float32Array(particleCount * 3);
+                const colors = new Float32Array(particleCount * 3);
+                const velocities = []; // 存储速度向量
+
+                // 随机颜色
+                const baseColor = new THREE.Color(Math.random(), Math.random(), Math.random());
+
+                for (let i = 0; i < particleCount; i++) {
+                    positions[i * 3]     = x;
+                    positions[i * 3 + 1] = y;
+                    positions[i * 3 + 2] = z;
+
+                    // 随机速度向量 (球面分布)
+                    const speed = Math.random() * 5 + 2;
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.acos(2 * Math.random() - 1);
+                    const vx = speed * Math.sin(phi) * Math.cos(theta);
+                    const vy = speed * Math.sin(phi) * Math.sin(theta);
+                    const vz = speed * Math.cos(phi);
+                    velocities.push(new THREE.Vector3(vx, vy, vz));
+
+                    // 颜色微调
+                    const color = baseColor.clone();
+                    color.r += (Math.random() - 0.5) * 0.3;
+                    color.g += (Math.random() - 0.5) * 0.3;
+                    color.b += (Math.random() - 0.5) * 0.3;
+                    colors[i * 3]     = color.r;
+                    colors[i * 3 + 1] = color.g;
+                    colors[i * 3 + 2] = color.b;
+                }
+
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+                const material = new THREE.PointsMaterial({
+                    size: 2,
+                    vertexColors: true,
+                    transparent: true,
+                    opacity: 1,
+                    blending: THREE.AdditiveBlending
+                });
+
+                this.points = new THREE.Points(geometry, material);
+                this.velocities = velocities;
+                this.life = 1.0; // 生命周期
+                this.decay = Math.random() * 0.02 + 0.01; // 衰减速率
+
+                this.group.add(this.points);
+                scene.add(this.group);
+            }
+
+            update() {
+                this.life -= this.decay;
+                if (this.life <= 0) {
+                    scene.remove(this.group);
+                    return false; // 表示已死亡
+                }
+
+                const positions = this.points.geometry.attributes.position.array;
+                const opacities = []; // 可选：用于淡出效果
+
+                for (let i = 0; i < this.velocities.length; i++) {
+                    // 更新位置
+                    positions[i * 3]     += this.velocities[i].x;
+                    positions[i * 3 + 1] += this.velocities[i].y;
+                    positions[i * 3 + 2] += this.velocities[i].z;
+                    
+                    // 简单重力模拟
+                    this.velocities[i].y -= 0.05;
+
+                    // 可选：收集透明度用于淡出
+                    opacities.push(this.life);
+                }
+                
+                this.points.geometry.attributes.position.needsUpdate = true;
+                // 如果要实现淡出，需要自定义着色器或使用 Tween.js 等库
+                
+                // 当生命值低于某个阈值时开始降低不透明度
+                this.points.material.opacity = this.life;
+                
+                return true; // 仍然存活
+            }
+        }
+
+        // 新增：创建烟花
+        function launchFirework(x, y, z) {
+             // 将屏幕坐标转换为世界坐标比较复杂，这里简化处理：
+             // 点击时在圣诞树附近随机位置爆炸
+             const fireworkX = (Math.random() - 0.5) * 200;
+             const fireworkY = Math.random() * 200 + 100;
+             const fireworkZ = (Math.random() - 0.5) * 200;
+             fireworks.push(new Firework(fireworkX, fireworkY, fireworkZ));
+        }
+
+        // 新增：监听鼠标点击事件
+        function onMouseClick(event) {
+            // 简单处理：每次点击都在场景中心附近发射烟花
+            launchFirework(0, 0, 0);
+        }
+
+        // 创建星空背景
+        function createStarfield() {
+            const starCount = 5000;
+            const starPositions = new Float32Array(starCount * 3);
+
+            for (let i = 0; i < starCount; i++) {
+                const x = (Math.random() - 0.5) * 2000;
+                const y = (Math.random() - 0.5) * 2000;
+                const z = (Math.random() - 0.5) * 2000;
+                starPositions[i * 3]     = x;
+                starPositions[i * 3 + 1] = y;
+                starPositions[i * 3 + 2] = z;
+            }
+
+            const starGeometry = new THREE.BufferGeometry();
+            starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+
+            const starMaterial = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 1.2,
+                transparent: true,
+                opacity: 0.8
+            });
+
+            const stars = new THREE.Points(starGeometry, starMaterial);
+            scene.add(stars);
+        }
+
+        // 窗口大小变化时调整
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+                // 动画循环 (最终增强版)
+        let clock = new THREE.Clock(); // 用于获取时间差
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+            const elapsedTime = clock.getElapsedTime();
+
+            // 更新粒子材质的时间uniform（用于闪烁）
+            if (window.treeMaterial) {
+                window.treeMaterial.uniforms.time.value = elapsedTime;
+            }
+
+            // 粒子圣诞树缓慢旋转
+            if (particles) {
+                particles.rotation.y += 0.0005; // 调慢一点
+            }
+
+            // 心形轻微摆动
+            if (heart) {
+                heart.rotation.x = Math.sin(elapsedTime * 0.5) * 0.1;
+                heart.rotation.z = Math.cos(elapsedTime * 0.4) * 0.1;
+            }
+
+            // 更新雪花位置
+            if (snowflakes) {
+                const positions = snowflakes.geometry.attributes.position.array;
+                const speeds = snowflakes.geometry.attributes.speed.array; // 获取速度数组
+                for (let i = 0; i < positions.length; i += 3) {
+                    // 使用对应的速度
+                    positions[i + 1] -= speeds[i/3]; 
+
+                    // 如果雪花落到下方，则重置到上方随机位置
+                    if (positions[i + 1] < -300) {
+                        positions[i] = (Math.random() - 0.5) * 2000;
+                        positions[i + 1] = Math.random() * 1000 + 300;
+                        positions[i + 2] = (Math.random() - 0.5) * 2000;
+                    }
+                }
+                snowflakes.geometry.attributes.position.needsUpdate = true;
+            }
+
+            // --- 新增：更新烟花 ---
+            for (let i = fireworks.length - 1; i >= 0; i--) {
+                const alive = fireworks[i].update();
+                if (!alive) {
+                    fireworks.splice(i, 1); // 移除死亡的烟花
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // 页面加载完成后初始化
+        window.onload = init;
+    </script>
+</body>
+</html>
